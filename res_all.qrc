@@ -4,11 +4,13 @@
         <file>balance/balance.vescpkg</file>
         <file>float/float.vescpkg</file>
         <file>logui/logui.vescpkg</file>
+        <file>gitlit/gitlit.vescpkg</file>
         <file>lib_ws2812/ws2812.vescpkg</file>
         <file>lib_nau7802/nau7802.vescpkg</file>
         <file>lib_interpolation/interpolation.vescpkg</file>
         <file>lib_files/files.vescpkg</file>
         <file>lib_pn532/pn532.vescpkg</file>
+        <file>lib_pca9685/pca9685.vescpkg</file>
    </qresource>
 </RCC>
 

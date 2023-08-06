@@ -1,4 +1,4 @@
-PKGS = balance float lib_files lib_interpolation lib_nau7802 lib_pn532 lib_ws2812 logui
+PKGS = balance float lib_files lib_interpolation lib_nau7802 lib_pn532 lib_ws2812 logui gitlit lib_pca9685
 
 all: vesc_pkg_all.rcc
 
