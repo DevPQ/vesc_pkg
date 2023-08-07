@@ -31,7 +31,8 @@
 ; pin[12] Rear-RD
 
 ;*** USER DEFS SECTION ***
-
+; App unique id
+;(def uid 815)
 ; Control rates
 (def rate 5) ;HZ
 (def sw-delay 0.2)
@@ -163,7 +164,9 @@
             (var inverted 0)
             (var och 0)
             (var ai 1)
-   
+            (var state (eeprom-read-i 9))
+            (var dim (eeprom-read-f 10))
+            
         (if (= res 1)
             {
                 (set-auto-inc ai)
@@ -175,10 +178,24 @@
         
                 ; Initial state of lights off 
                 (all-off)
+                
+                (if (= state nil)
+                    (setq lit-state 1)
+                    (setq lit-state state)
+                )
+                (if (= dim nil)
+                    (setq dim-on 1.0)
+                    (setq dim-on dim)
+                )                
             }
             (print "Init Failed")
         )
 })
+
+(defun tx-gitlit-data()
+    ;(send data to QML  '( (float magic number = 101) (gitlit msg type = 815) ,lit-state ,dim-on))
+    (send-data '(101 815 ,lit-state ,dim-on))
+)
 
 (defun update-output () {
         (var cnt 0)
@@ -325,6 +342,26 @@
         })
 })
 
+(defun store-state() {
+    (if (not-eq (eeprom-read-i 9) lit-state)
+        (eeprom-store-i 9 lit-state)
+        nil
+    )
+    (if (not-eq (eeprom-read-f 10) dim-on)
+        (eeprom-store-f 10 dim-on)
+        nil
+    )
+})
+
+(defun event-handler ()
+    {
+        (recv 
+            ;((event-data-rx . (? data)) (proc-data data))
+            (event-shutdown (store-state))
+            (_ nil))
+        (event-handler)
+})
+
 (init-git-lit)
 
 ; Sleep after boot to wait for IMU to settle
@@ -337,16 +374,21 @@
     }
 )
 
+(event-register-handler (spawn 30 event-handler))
+;(event-enable 'event-data-rx)
+(event-enable 'event-shutdown)
+
+;Use this instead of event-shutdown if you dont have a on/off switch
+;(defun voltage-monitor ()
+;    (progn
+;        (if (< (get-vin) vin-min)
+;            (store-state)
+;        )
+;        (sleep 0.01)
+;))
+
+;(spawn 30 voltage-monitor)
+
+(tx-gitlit-data)
 (free-heap)
-
-(defun event-handler ()
-    {
-        (recv ((event-data-rx . (? data)) (proc-data data))
-              (_ nil))
-        (event-handler)
-})
-
-(event-register-handler (spawn event-handler))
-(event-enable 'event-data-rx)
-(event-enable 'event-shutdown) ; Sends signal-shutdown
 (spawn 100 led-thd)
