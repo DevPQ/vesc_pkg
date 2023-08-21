@@ -13,16 +13,18 @@
 ; I2C Address: 1+A5+A4+A3+A2+A1+A0+RW
 (define #DEV-ADDR 0x40) ; Default PCA9685 I2C Slave Address
 
+; CONST
+;(define FREQUENCY-OSCILLATOR 25000000) ; Int. osc. frequency in datasheet
+;(define osc-freq FREQUENCY-OSCILLATOR)
+(define lv-freq 1000)
+
+@const-start
+
 ; Registers
 (define REG-MODE1 0x00)
 (define REG-MODE2 0x01)
 (define REG-LED0-ON-L 0x06)
 (define REG-ALL-LED-ON-L 0xFA)
-
-; CONST
-;(define FREQUENCY-OSCILLATOR 25000000) ; Int. osc. frequency in datasheet
-;(define osc-freq FREQUENCY-OSCILLATOR)
-(define lv-freq 1000)
 
 ; 16-Byte Table 
 (define #gamma-tab '(
@@ -111,6 +113,8 @@
             (free buf)
 })
 
+;@const-end
+
 (defun set-ext-clk (enable) 
     {
             (var buf (array-create 1))        
@@ -189,6 +193,7 @@
 })
 ;###############################################################################
 
+;@const-start
 
 (defun is-sleeping ()
      {
@@ -228,6 +233,8 @@
             (= awake 0)
 })
 
+;@const-end
+
 (defun set-pwm-freq (freq)
     {
             (var reg-prescale 0xFE)
@@ -249,6 +256,8 @@
             (wakeup)            
             res        
 })
+
+;@const-start
 
 (defun set-pwm (channel on-t off-t)
      {
@@ -363,6 +372,8 @@
     }
 )
 
+;@const-end
+
 (defun pca9685-init (pins i2caddr) 
     {
         (apply i2c-start (append '('rate-400k) pins))
@@ -374,21 +385,23 @@
         1
 })
 
+@const-end
+
 ; This can be used to remove all init-code and free up the heap
-(defun free-heap ()
-    {
-        ;(undefine 'read-u8)
-        (undefine 'pca9685-init)
-        (undefine 'set-ext-clk)
-        (undefine 'set-pwm-freq)
-        (undefine 'set-outne)
-        (undefine 'set-och)
-        (undefine 'set-outdrv)
-        (undefine 'set-inverted)
-        ;(undefine 'fade-up)
-        ;(undefine 'fade-down)
-        ;(undefine set-i2c-address)
-        '(undefine 'FREQUENCY-OSCILLATOR)
-        (undefine 'free-heap)
-        (gc)
-})
+;(defun free-heap ()
+;    {
+;        ;(undefine 'read-u8)
+;        (undefine 'pca9685-init)
+;        (undefine 'set-ext-clk)
+;        (undefine 'set-pwm-freq)
+;        (undefine 'set-outne)
+;        (undefine 'set-och)
+;        (undefine 'set-outdrv)
+;        (undefine 'set-inverted)
+;        ;(undefine 'fade-up)
+;        ;(undefine 'fade-down)
+;        ;(undefine set-i2c-address)
+;        ;(undefine 'FREQUENCY-OSCILLATOR)
+;        (undefine 'free-heap)
+;        (gc)
+;})
