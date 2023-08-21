@@ -3,11 +3,23 @@
 
 (import "pkg::floatlib@://vesc_packages/float/float.vescpkg" 'floatlib)
 (load-native-lib floatlib)
-;(import "PCA9685_v1.0b.lisp" 'pca9685)
-;(import "pkg::pca9685@://vesc_packages/lib_pca9685/pca9685.vescpkg" 'pca9685)
-;(import "pkg::pca9685@C:/Users/Devon/OneDrive/Documents/GitHub/vesc_pkg/lib_pca9685/pca9685.vescpkg" 'pca9685)
-(import "C:/Users/Devon/OneDrive/Documents/GitHub/vesc_pkg/lib_pca9685/pca9685.lisp" 'pca9685)
-(eval-program (read-program pca9685))
+
+;(import "C:/Users/Devon/OneDrive/Documents/GitHub/vesc_pkg/float/ui_dyn_pages.qml" 'floatui)
+;(load-native-lib floatui)
+
+;(import "C:/Users/Devon/OneDrive/Documents/GitHub/vesc_pkg/float/ui_gl.qml" 'gitlitui)
+;(load-native-lib gitlitui)
+(import "pkg::pca9685@://vesc_packages/lib_pca9685/pca9685.vescpkg" 'pca9685)
+;(import "C:/Users/Devon/OneDrive/Documents/GitHub/vesc_pkg/lib_pca9685/pca9685.lisp" 'pca9685)
+;(eval-program (read-program pca9685))
+(read-eval-program pca9685)
+
+
+; Switch Balance App to UART App
+(if (= (conf-get 'app-to-use) 9) (conf-set 'app-to-use 3))
+
+; Set firmware version:
+(apply ext-set-fw-version (sysinfo 'fw-ver))
 
 ; Extension ext-float-dbg
 ;(idx):description                   ;(idx):description
@@ -31,7 +43,8 @@
 ; pin[12] Rear-RD
 
 ;*** USER DEFS SECTION ***
-
+; App unique id
+;(def uid 815)
 ; Control rates
 (def rate 5) ;HZ
 (def sw-delay 0.2)
@@ -53,6 +66,8 @@
 (def switch-last 0)
 (def erpm (round (ext-float-dbg 7)))
 (def abs-erpm (round (ext-float-dbg 8)))
+;(def erpm (round (get-rpm)))
+;(def abs-erpm (round (abs (get-rpm))))
 (def torque-sign 1)
 
 ;(define p-rate 0)
@@ -153,6 +168,8 @@
             ;(write-duty-cycle flow)
 })
 
+;(def state (eeprom-read-i 126))
+
 (defun init-git-lit () {
             (var res (pca9685-init nil nil))
             (var freq 1526)
@@ -163,7 +180,8 @@
             (var inverted 0)
             (var och 0)
             (var ai 1)
-   
+            (var state (eeprom-read-i 126))
+            
         (if (= res 1)
             {
                 (set-auto-inc ai)
@@ -174,10 +192,42 @@
                 (set-inverted inverted)
         
                 ; Initial state of lights off 
-                (all-off)
+                ;(all-off)
+                
+                (if (not-eq state nil)
+                    {
+                        (if (= (bitwise-and state 0x1) 1)
+                            (setq lit-state 1)
+                            (setq lit-state 0)
+                        )
+                        (setq dim-on (* 0.1 (to-float (bits-dec-int state 8 4))))
+                    }
+                    {
+                        (eeprom-store-i 126 0x00000A01)
+                        (setq lit-state 1)
+                        (setq dim-on 1.0)
+                    }
+                )
             }
             (print "Init Failed")
         )
+})
+
+(defun git-lit-data () {
+    (var buffer (array-create 3))
+    (var uid 88) ;uid dec 88 == 0x58
+    
+    (bufclear buffer)
+    ;(bits-enc-int initial offset number bits)
+    (bufset-i8 buffer 0 uid)
+    (bufset-i8 buffer 1 lit-state)
+    (bufset-i8 buffer 2 (to-i (* dim-on 10)))
+    
+    ;(send data to QML  '(uid lit-state dim-on))
+    ;(send-data `(88 ,lit-state ,dim-on))
+    (send-data buffer)
+    ;(send-data `(,uid ,lit-state ,dim-on))
+    (free buffer)
 })
 
 (defun update-output () {
@@ -271,13 +321,15 @@
 
 (defun led-thd () {
         (print "led-thd")
-        (loopwhile t
-             
+        (loopwhile t            
             {
                 (setq pitch (round (rad2deg (ix (get-imu-rpy) 1))))
                 (setq erpm (round (ext-float-dbg 7)))
+                ;(setq erpm (round (get-rpm)))
                 (setq abs-erpm (round (ext-float-dbg 8)))
+                ;(setq abs-erpm (round (abs (get-rpm))))
                 (setq torque-sign (sign (ext-float-dbg 3)))
+                ;(setq torque-sign (sign (get-current 1)))
                 
                 ; Loop rate measurement
                 ;(setq it-rate (/ 1.0 (secs-since t-last)))
@@ -319,11 +371,61 @@
                         })                          
                     ) nil
                 )
-                    
+                ;(git-lit-data) 
                 ;(sleep (- (/ 1.0 #rate) (#it-rate-filter))) ;Needs testing
                 (sleep (/ 1.0 rate)) ;otherwise
         })
 })
+
+(defun store-state () {
+    ;(var buf (array-create 4))
+    (var mem (to-i32 0))
+    (var differs 0)
+        
+    ;(bufclear buf)
+    (if (eq (eeprom-read-i 126) nil)
+        (eeprom-store-i 126 0x00000A01)
+        nil
+    )
+    (setq mem (eeprom-read-i 126))
+    (if (= (bitwise-and mem 0x1) (to-i32 lit-state))
+        nil
+        {
+            (setq differs 1)
+            (setq mem (bits-enc-int mem 0 lit-state 1));(bufset-u8 buf 0 lit-state) ;(bufset-bit buf 0 lit-state)
+        }
+    )
+    (if (= (shr mem 8) (to-i32 (* dim-on 10)))
+        nil
+        {
+            (setq differs 1)
+            (if (< dim-on 0.1)
+                (setq mem (bits-enc-int mem 8 0 4));(bufset-u8 buf 1 0) ;(bits-enc-int buf 0 4 4)
+                (setq mem (bits-enc-int mem 8 (to-u (* dim-on 10)) 4));(bufset-u8 buf 1 (to-u (* dim-on 10))) ;(bits-enc-int buf (to-i (* dim-on 10)) 4 4)
+            )
+        }
+    )
+       
+    (if (= differs 1)
+        {
+            ;(eeprom-store-i 126 (bitwise-and buf 0xFFFFFFFF)) 
+            ;(bufset-u16 buf 2 0)
+            (eeprom-store-i 126 mem)
+            ;(timeout-reset)
+        }
+        nil
+    )
+    ;(free buf)
+})
+
+;(defun event-handler ()
+;    {
+;        (recv 
+;            ;((event-data-rx . (? data)) (proc-data data))
+;            (event-shutdown (store-state))
+;            (_ nil))
+;        (event-handler)
+;})
 
 (init-git-lit)
 
@@ -337,16 +439,22 @@
     }
 )
 
-(free-heap)
+;(event-register-handler (spawn 30 event-handler))
+;(event-enable 'event-data-rx)
+;(event-enable 'event-shutdown)
 
-(defun event-handler ()
-    {
-        (recv ((event-data-rx . (? data)) (proc-data data))
-              (_ nil))
-        (event-handler)
-})
+;Use this instead of event-shutdown if you dont have a on/off switch
+;(defun voltage-monitor ()
+;    (progn
+;        (if (< (get-vin) vin-min)
+;            (store-state)
+;        )
+;        (sleep 0.01)
+;))
 
-(event-register-handler (spawn event-handler))
-(event-enable 'event-data-rx)
-(event-enable 'event-shutdown) ; Sends signal-shutdown
+;(spawn 30 voltage-monitor)
+;(free-heap)
+(sleep 3.0)
+(git-lit-data)
 (spawn 100 led-thd)
+
