@@ -1,137 +1,211 @@
 # PCA9685 Driver
 
+
+## <font color=orange>By Devon Piecuch</font>
+
+
 This is an i2c-driver for the PCA9685 LED-controller. It requires firmware 6.05 or later and works on ESC and Express hardware.
+The driver is tested with the Adafruit PCA9685-board as a PWM LED driver but can be adapted to control servos as well.
 
-The driver is tested with the Adafruit PCA9685-board as an LED driver:
 
-[https://cdn-learn.adafruit.com/downloads/pdf/adafruit-pn532-rfid-nfc.pdf](https://cdn-learn.adafruit.com/downloads/pdf/adafruit-pn532-rfid-nfc.pdf)
+Supporting documents and files can be found here: 
+[https://learn.adafruit.com/16-channel-pwm-servo-driver/downloads](https://learn.adafruit.com/16-channel-pwm-servo-driver/downloads)
 
-## Functions
 
-### pn532-init
+## FUNCTIONS
+
+
+### pca9685-init
 
 ```clj
-(pn532-init '(pins))
+(pca9685-init '(pins) i2caddr)
 ```
 
-Initialize and start the driver on the i2c-pins pins. If the pins are nil (an empty list) the default pins will be used. Example:
+Initialize and start the driver on the i2c-pins with the optional I2C device address. If the pins are nil (an empty list) the default pins will be used and if i2caddr is nil the default 0x40 slave address will be used. 
+
+Example:
 
 ```clj
-(pn532-init nil) ; Initialize using default pins
-(pn532-init '(3 2)) ; Initialize using pin 3 for SDA and 2 for SCL on the express firmware
-(pn532-init '('pin-swdio 'pin-swclk)) ; Initialize using pin swdio for SDA and swclk for SCL on the ESC-firmware
+(pca9685-init nil nil) ; Initialize using default pins and I2C slave address
+(pca9685-init '(3 2) 0x41) ; Initialize using pin 3 for SDA and 2 for SCL on the express firmware and hardware address A0 is used on the pca9685
+(pca9685-init '('pin-swdio 'pin-swclk) 0x60) ; Initialize using pin swdio for SDA and swclk for SCL on the ESC-firmware and hardware address A5 is used on the pca9685
 ```
 
 The function return true if initialization was successful and false otherwise.
 
-### pn532-read-fwversion
+
+## MODE 1 REGISTER FUNCTIONS
+
+
+### set-sleep 
 
 ```clj
-(pn532-read-fwversion)
+(set-sleep)
 ```
 
-Read the firmware version of the PN532 chip. Returns the firmware version as a list on success and nil otherwise.
+Set the sleep bit.
 
-### pn532-read-target-id
+### set-auto-inc 
 
 ```clj
-(pn532-read-target-id timeout)
+(set-auto-inc enable)
 ```
 
-Read the id of a tag. This functions blocks up to timeout seconds and returns the ID on success and nil of a timeout occurred. If the id has length 4 it is most likely a MiFare Classic tag and if it has length 7 it is most likely a MiFare Ultralight tag.
+Enable/Disable (1/0) auto increment.
 
-### pn532-authenticate-block
+### set-ext-clk
 
 ```clj
-(pn532-authenticate-block uuid block keynum key)
+(set-ext-clk enable)
 ```
 
-Authenticate block on MiFare Classic tag. UUID is the id of the card, which is returned from pn532-read-target-id, block is the block number (0 to 63 for 1k cards), keynum is the key number (0 or 1) and key is the key (a list with 6 numbers from 0 to 255). This function returns true on success and false otherwise. Each sector which contains 4 blocks has to be authenticated before it can be read or written.
+Enable/Disable (1/0) external clock.
 
-### pn532-mifareclassic-read-block
+
+## MODE 2 REGISTER FUNCTIONS
+
+
+### set-outne
 
 ```clj
-(pn532-mifareclassic-read-block block)
+(set-outne bit0 bit1)
 ```
 
-Read block from MiFare Classic tag. Returns a list of 16 bytes on success or nil on failure.
+Active LOW output enable input 'OE' pin
 
-### pn532-mifareclassic-write-block
+param: bit0:(MODE2)OUTNE0 bit1:(MODE2)OUTNE1  
+
+| OUTNE[1:0] | LED outputs |
+| --- | --- |
+| 00: | 0 \*default |
+| 01: | 1 if OUTDRV=1, hi-z OUTDRV=0 |
+| 10: | 0 hi-z |
+| 11: | 0 hi-z |
+
+### set-outdrv
 
 ```clj
-(pn532-mifareclassic-write-block block data)
+(set-outdrv  outdrv)
 ```
 
-Write data to block. Data must be a list with 16 numbers where each number is 0 to 255. Returns true on success and nil on failure.
+param: outdrv= 1:totem pole  0:open drain
 
-### pn532-mifareul-read-page
+Suggested configs: \*see also '(set-inverted)'  
+(MODE2)bit2:outdrv
+
+1. LEDs directly connected no ext driver (outdrv:0 invrt:1)
+2. N-type Ext. driver used \*DEFAULT (outdrv:1 invrt:0)
+3. P-type Ext. driver used (outdrv:1 invrt:1)
+
+### set-och
 
 ```clj
-(pn532-mifareul-read-page page)
+(set-och ack)
 ```
 
-Read page from MiFare Ultralight tag. Returns a list of 4 bytes on success or nil on failure.
+param: Outputs change on: 1=ACK 0=STOP
 
-### pn532-mifareul-write-page
+### set-inverted
 
 ```clj
-(pn532-mifareul-write-page page data)
+(set-inverted inverted)
 ```
 
-Write data to page. Data must be a list with 4 numbers where each number is 0 to 255. Returns true on success and nil on failure.
+param: inverted= 1:output polarity is inverted
+(MODE2) bit4:invrt
+\*see also '(set-outdrv)'
 
-## Example
+
+## HELP FUNCTIONS
+
+
+### is-sleeping
 
 ```clj
-(import "pkg@://vesc_packages/lib_pn532/pn532.vescpkg" 'pn532)
-(eval-program (read-program pn532))
+(is-sleeping)
+```
 
-(def is-esp false)
+Returns t if sleeping bit is set and nil if board is awake.
 
-(def pins nil)
-(if is-esp {
-        (def pins '(3 2))
-        (rgbled-init 8 1)
+### wakeup
+
+```clj
+(wakeup)
+```
+
+If board is sleeping will try to reset the sleeping bit. Returns t if board is awake.
+
+### set-pwm-freq
+
+```clj
+(set-pwm-freq freq)
+```
+
+Sets the PWM frequency to a value between 24-1526 hz inclusive.
+
+### set-pwm
+
+```clj
+(set-pwm channel on-t off-t)
+```
+
+Sets the PWM on/off times for a specific channel. \*see data sheet for help
+
+### write-duty-cycle
+
+```clj
+(write-duty-cycle '(data))
+```
+
+Write a duty cycle from 0.0-1.0 to multiple channels.
+
+### all-off
+
+```clj
+(all-off)
+```
+
+Set PWM to default OFF state for all channels
+
+### all-on
+
+```clj
+(all-on)
+```
+
+Set PWM to default ON state for all channels
+
+
+## **Example**
+
+```clj
+(import "pkg@://vesc_packages/lib_pca9685/pca9685.vescpkg" 'pca9685)
+(eval-program (read-program pca9685))
+
+(defun init () {
+    (var res (pca9685-init nil nil))
+    (var freq 1526)
+    (var extclk 0)
+    (var outne0 0)
+    (var outne1 0)
+    (var outdrv  1)
+    (var inverted 0)
+    (var och 0)
+    (var ai 1)
+            
+    (if (= res 1)
+        {
+            (set-auto-inc ai)
+            (set-pwm-freq freq)
+            (set-ext-clk extclk)
+            (set-outne outne0 outne1)                      
+            (set-outdrv  outdrv)
+            (set-inverted inverted)
+        
+            ; Initial state of lights off 
+            (all-off)
+        }
+        (print "Init Failed")
+    )
 })
-
-(defun led-on () (if is-esp (rgbled-color 0 0x00ff00)))
-(defun led-off () (if is-esp (rgbled-color 0 0)))
-
-(if (pn532-init pins)
-    (loopwhile t {
-            (var res (pn532-read-target-id 2))
-            (if res {
-                    (led-on)
-                    (var uuid-len (first res))
-                    (var uuid (second res))
-                    (print " ")
-                    (print (list "UUID:" uuid))
-                    (cond
-                        ((= uuid-len 4) {
-                                (print "Most likely Mifare Classic")
-                                (var block 21)
-                                (print (list "Reading block" block))
-                                (if (pn532-authenticate-block uuid block 0 '(0xff 0xff 0xff 0xff 0xff 0xff))
-                                    {
-                                        (print "Authentication OK!")
-                                        (print (list "Data:" (pn532-mifareclassic-read-block block)))
-                                    }
-                                    (print "Authentication failed, most likely the wrong key")
-                                )
-                        })
-                        ((= uuid-len 7) {
-                                (print "Most likely Mifare Ultralight or NTAG")
-                                (var page 4)
-                                (print (list "Reading page" page))
-                                (print (list "Data:" (pn532-mifareul-read-page page)))
-                        })
-                        (t (print (str-from-n uuid-len "No idea, UUID len: %d")))
-                    )
-                    
-                    (led-off)
-                    (sleep 1)
-            })
-    })
-    (print "Init Failed")
-)
 ```
