@@ -6,6 +6,6 @@ gitlit.vescpkg:
 	$(VESC_TOOL) --buildPkg "gitlit.vescpkg:gitlit.lisp:ui.qml:0:README.md:GitLit"
 
 clean:
-	rm -f gitlit.vescpkg README.md ui.qml
+	rm -f gitlit.vescpkg
 
 .PHONY: all clean
