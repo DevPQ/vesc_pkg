@@ -141,17 +141,6 @@ Item {
         }
     }
     
-    Timer {
-        running: true
-        repeat: true
-        interval: 1000
-        
-        onTriggered: {
-            mCommands.lispSendReplCmd("(setq request-data 1)")
-        }
-            
-    }
-    
     Connections {
         target: mCommands
         
@@ -378,7 +367,7 @@ Item {
     Component.onCompleted: {
         restoreQuicksaveNames()
         restoreDownloadedTunes()
-        mCommands.lispSendReplCmd("(git-lit-data)")
+        mCommands.lispSendReplCmd("(setq request-data 1)")
     }
 
     Dialog {
