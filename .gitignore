@@ -9,3 +9,8 @@ confxml.h
 *.obj
 *.so
 *.rcc
+
+.vs
+.vscode
+gitlit
+lib_pca9685
