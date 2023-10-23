@@ -141,16 +141,6 @@ Item {
         }
     }
     
-    Timer {
-        running: true
-        repeat: true
-        interval: 1000
-        
-        onTriggered: {
-                mCommands.lispSendReplCmd("(setq data-request 1)")
-        }            
-    }
-    
     Connections {
         target: mCommands
         
@@ -377,7 +367,7 @@ Item {
     Component.onCompleted: {
         restoreQuicksaveNames()
         restoreDownloadedTunes()
-        mCommands.lispSendReplCmd("(git-lit-data)")
+        mCommands.lispSendReplCmd("(setq data-request 1)")
     }
 
     Dialog {
@@ -1086,6 +1076,8 @@ Item {
                 Slider {
                     id: dimSlider
                     Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    orientation: Qt.Vertical
                     from: 0.0
                     to: 1.0
                     value: lit_dim

@@ -219,7 +219,7 @@
     )
 })
 
-(defun init-git-lit () {
+(defun gitlit-init () {
     (var res (pca9685-init nil nil))
     (var freq 1526)
     (var extclk 0)
@@ -263,7 +263,7 @@
     )
 })
 
-(defun git-lit-data () {
+(defun gitlit-data () {
     (var buffer (array-create 3))
     (var uid 88) ;uid: (dec)88 == (hex)0x58
     
@@ -387,7 +387,7 @@
             (if (= data-request 1)
                 {
                     (setq data-request 0)
-                    (git-lit-data)
+                    (gitlit-data)
                 }
                 nil
             )
@@ -431,16 +431,16 @@
     )
 })
 
-(init-git-lit)
+(gitlit-init)
 
 (loopwhile (is-sleeping)
     {
-        (init-git-lit)
+        (gitlit-init)
         (sleep 1.0)
     }
 )
 
 (batt-level)
-(git-lit-data)
+(gitlit-data)
 (spawn 100 led-thd)
 
