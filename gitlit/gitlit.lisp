@@ -5,8 +5,8 @@
 (load-native-lib floatlib)
 
 ;(import "pkg::pca9685@://vesc_packages/lib_pca9685/pca9685.vescpkg" 'pca9685)
-;(import "pkg::pca9685@lib_pca9685/pca9685.vescpkg" 'pca9685)
-(import "pkg@lib_pca9685/pca9685.vescpkg" 'pca9685)
+(import "pkg@../lib_pca9685/pca9685.vescpkg" 'pca9685)
+;(import "../lib_pca9685/pca9685.lisp" 'pca9685)
 (read-eval-program pca9685)
 
 ; Switch Balance App to UART App
@@ -29,8 +29,8 @@
 
 ;PIN MAPPINGS
 ; FWD                   ; REV
-; pin[0] Front-WHT      ; pin[8] Rear-WHT
-; pin[4] Front-RD       ; pin[12] Rear-RD
+; pin[0] Front-RD       ; pin[8] Rear-RD
+; pin[4] Front-WHT      ; pin[12] Rear-WHT
 
 
 ;*** USER DEFS SECTION ***
@@ -76,12 +76,12 @@
 (defun sign (x) (if (> x 0) 1 (- 1)))
 
 (defun batt-level () {
-    (var batt-per get-batt)
+    (var batt-per (to-float (get-batt)))
     (var lng-delay 1.0)
     (var sht-delay 0.25)
     
     (cond 
-        ((> batt-per 0.89)
+        ((>= batt-per 0.90)
             {
                 (red-on);red start
                 (sleep lng-delay)
@@ -96,7 +96,7 @@
                     }
                 )
         })
-        ((and (> batt-per 0.74) (< batt-per 0.90))
+        ((and (>= batt-per 0.75) (< batt-per 0.90))
             {
                 (red-on);red start
                 (sleep lng-delay)
@@ -111,7 +111,7 @@
                     }
                 )
         })
-        ((and (> batt-per 0.49) (< batt-per 0.75))
+        ((and (>= batt-per 0.50) (< batt-per 0.75))
             {
                 (red-on);red start
                 (sleep lng-delay)
@@ -126,7 +126,7 @@
                     }
                 )
         })
-        ((and (> batt-per 0.24) (< batt-per 0.50))
+        ((and (>= batt-per 0.25) (< batt-per 0.5))
             {
                 (red-on);red start
                 (sleep lng-delay)
@@ -141,7 +141,7 @@
                     }
                 )
         })
-        ((< batt-per 0.15)
+        ((< batt-per 0.25)
             {
                 (red-on);red start
                 (sleep lng-delay)
@@ -160,19 +160,19 @@
         
 })
 
-(defun white-on (){
-        (setix (ix fade 0) 1  1.0);white
-        (setix (ix fade 1) 1  0.0);red
-        (setix (ix fade 2) 1  1.0);white
-        (setix (ix fade 3) 1  0.0);red
+(defun red-on (){
+        (setix (ix fade 0) 1  1.0);red
+        (setix (ix fade 1) 1  0.0);white
+        (setix (ix fade 2) 1  1.0);red
+        (setix (ix fade 3) 1  0.0);white
         (write-duty-cycle fade)
 })
 
-(defun red-on (){
-        (setix (ix fade 0) 1  0.0);white
-        (setix (ix fade 1) 1  1.0);red
-        (setix (ix fade 2) 1  0.0);white
-        (setix (ix fade 3) 1  1.0);red
+(defun white-on (){
+        (setix (ix fade 0) 1  0.0);red
+        (setix (ix fade 1) 1  1.0);white
+        (setix (ix fade 2) 1  0.0);red
+        (setix (ix fade 3) 1  1.0);white
         (write-duty-cycle fade)
 })
 
