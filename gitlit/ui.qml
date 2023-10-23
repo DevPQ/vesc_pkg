@@ -719,7 +719,7 @@ Item {
 					}
 					Text {
 						id: versionText
-						text: "{1.2 GitLit}"//"{{VERSION}}"
+						text: "{1.3} GitLit"//"{{VERSION}}"
 						color: Utility.getAppHexColor("lightText")
 						font.pointSize: 10
 						font.weight: Font.Black
@@ -1151,6 +1151,7 @@ Item {
                     
                     onClicked: {
                         mCommands.lispSendReplCmd("(store-state)")
+                        VescIf.emitStatusMessage("Settings saved!", true)
                     }
                 }
                 
