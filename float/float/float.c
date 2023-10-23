@@ -32,6 +32,9 @@
 // Acceleration average
 #define ACCEL_ARRAY_SIZE 40
 
+// ADC Hand-Press Scale Factor (Accomdate lighter presses than what's needed for engagement by foot)
+#define ADC_HAND_PRESS_SCALE 0.8
+
 HEADER
 
 // Return the sign of the argument. -1.0 if negative, 1.0 if zero or positive.
@@ -49,7 +52,8 @@ typedef enum {
 	RUNNING_TILTBACK = 2,
 	RUNNING_WHEELSLIP = 3,
 	RUNNING_UPSIDEDOWN = 4,
-	RUNNING_FLYWHEEL = 5,
+	RUNNING_FLYWHEEL = 5,   // we remain in "RUNNING" state in flywheel mode,
+	                        // but then report "RUNNING_FLYWHEEL" in rt data
 	FAULT_ANGLE_PITCH = 6,	// skipped 5 for compatibility
 	FAULT_ANGLE_ROLL = 7,
 	FAULT_SWITCH_HALF = 8,
@@ -60,6 +64,20 @@ typedef enum {
 	FAULT_QUICKSTOP = 13,
 	DISABLED = 15
 } FloatState;
+
+typedef enum {
+	BEEP_NONE = 0,
+	BEEP_LV = 1,
+	BEEP_HV = 2,
+	BEEP_TEMPFET = 3,
+	BEEP_TEMPMOT = 4,
+	BEEP_CURRENT = 5,
+	BEEP_DUTY = 6,
+	BEEP_SENSORS = 7,
+	BEEP_LOWBATT = 8,
+	BEEP_IDLE = 9,
+	BEEP_ERROR = 10
+} BeepReason;
 
 typedef enum {
 	CENTERING = 0,
@@ -104,6 +122,7 @@ typedef struct {
 	int beep_num_left;
 	int beep_duration;
 	int beep_countdown;
+	int beep_reason;
 	bool buzzer_enabled;
 
 	// Config values
@@ -152,7 +171,7 @@ typedef struct {
 
 	// Rumtime state values
 	FloatState state;
-	float proportional, integral;
+	float proportional;
 	float pid_prop, pid_integral, pid_rate, pid_mod;
 	float last_proportional, abs_proportional;
 	float pid_value;
@@ -191,9 +210,14 @@ typedef struct {
 	bool enable_upside_down;		// dark ride mode is enabled (10 seconds after fault)
 	float delay_upside_down_fault;
 	float darkride_setpoint_correction;
+
+	// Feature: Flywheel
 	bool is_flywheel_mode, flywheel_abort, flywheel_allow_abort;
-	float flywheel_pitch_offset, flywheel_roll_offset, flywheel_konami_timer;
+	float flywheel_pitch_offset, flywheel_roll_offset, flywheel_konami_timer, flywheel_konami_pitch;
 	int flywheel_konami_state;
+
+	// Feature: Handtest
+	bool do_handtest;
 
 	// Feature: Reverse Stop
 	float reverse_stop_step_size, reverse_tolerance, reverse_total_erpm;
@@ -230,6 +254,8 @@ static void brake(data *d);
 static void set_current(data *d, float current);
 static void flywheel_stop(data *d);
 static void cmd_flywheel_toggle(data *d, unsigned char *cfg, int len);
+static bool flywheel_konami_check(data *d);
+static bool flywheel_konami_step(data *d, int input);
 
 /**
  * BUZZER / BEEPER on Servo Pin
@@ -460,6 +486,8 @@ static void configure(data *d) {
 	d->enable_upside_down = false;
 	d->is_upside_down = false;
 	d->darkride_setpoint_correction = d->float_conf.dark_pitch_offset;
+
+	// Feature: Flywheel
 	d->is_flywheel_mode = false;
 	d->flywheel_abort = false;
 	d->flywheel_allow_abort = false;
@@ -494,11 +522,12 @@ static void configure(data *d) {
 		d->state = STARTUP;
 		beep_alert(d, 1, false);
 	}
+
+	d->do_handtest = false;
 }
 
 static void reset_vars(data *d) {
 	// Clear accumulated values.
-	d->integral = 0;
 	d->last_proportional = 0;
 	// Set values for startup
 	d->setpoint = d->pitch_angle;
@@ -568,7 +597,8 @@ static void check_odometer(data *d)
 {
 	// Make odometer persistent if we've gone 200m or more
 	if (d->odometer_dirty > 0) {
-		if (VESC_IF->mc_get_odometer() > d->odometer + 200) {
+		float stored_odo = VESC_IF->mc_get_odometer();
+		if ((stored_odo > d->odometer + 200) || (stored_odo < d->odometer - 10000)) {
 			if (d->odometer_dirty == 1) {
 				// Wait 10 seconds before writing to avoid writing if immediately continuing to ride
 				d->odo_timer = d->current_time;
@@ -641,25 +671,33 @@ static float get_setpoint_adjustment_step_size(data *d) {
 static SwitchState check_adcs(data *d) {
 	SwitchState sw_state;
 
+	float fault_adc1 = d->float_conf.fault_adc1;
+	float fault_adc2 = d->float_conf.fault_adc2;
+	if (d->is_flywheel_mode) {
+		// use local variables to avoid risk of VESC Tool writing settings!
+		fault_adc1 = 0;
+		fault_adc2 = 0;
+	}
+
 	// Calculate switch state from ADC values
-	if(d->float_conf.fault_adc1 == 0 && d->float_conf.fault_adc2 == 0){ // No Switch
+	if(fault_adc1 == 0 && fault_adc2 == 0){ // No Switch
 		sw_state = ON;
-	}else if(d->float_conf.fault_adc2 == 0){ // Single switch on ADC1
-		if(d->adc1 > d->float_conf.fault_adc1){
+	}else if(fault_adc2 == 0){ // Single switch on ADC1
+		if(d->adc1 > fault_adc1){
 			sw_state = ON;
 		} else {
 			sw_state = OFF;
 		}
-	}else if(d->float_conf.fault_adc1 == 0){ // Single switch on ADC2
-		if(d->adc2 > d->float_conf.fault_adc2){
+	}else if(fault_adc1 == 0){ // Single switch on ADC2
+		if(d->adc2 > fault_adc2){
 			sw_state = ON;
 		} else {
 			sw_state = OFF;
 		}
 	}else{ // Double switch
-		if(d->adc1 > d->float_conf.fault_adc1 && d->adc2 > d->float_conf.fault_adc2){
+		if(d->adc1 > fault_adc1 && d->adc2 > fault_adc2){
 			sw_state = ON;
-		}else if(d->adc1 > d->float_conf.fault_adc1 || d->adc2 > d->float_conf.fault_adc2){
+		}else if(d->adc1 > fault_adc1 || d->adc2 > fault_adc2){
 			// 5 seconds after stopping we allow starting with a single sensor (e.g. for jump starts)
 			bool is_simple_start = d->float_conf.startup_simplestart_enabled &&
 				(d->current_time - d->disengage_timer > 5);
@@ -678,6 +716,7 @@ static SwitchState check_adcs(data *d) {
 			// If we're at riding speed and the switch is off => ALERT the user
 			// set force=true since this could indicate an imminent shutdown/nosedive
 			beep_on(d, true);
+			d->beep_reason = BEEP_SENSORS;
 		}
 		else {
 			// if we drop below riding speed stop buzzing
@@ -819,10 +858,9 @@ static bool check_faults(data *d){
 			}
 		}
 
-		if(d->is_flywheel_mode && d->flywheel_allow_abort) {
-			//if(d->adc1 > (d->float_conf.fault_adc1 * 0.8) || d->adc2 > (d->float_conf.fault_adc2 * 0.8)) {
-			if(d->adc1 > 1 && d->adc2 > 1) {
-				// this is a hand-press, accept 80% of normal ADC threshold to turn it off board
+		if (d->is_flywheel_mode && d->flywheel_allow_abort) {
+			if (d->adc1 > (d->float_conf.fault_adc1 * ADC_HAND_PRESS_SCALE)
+			    && d->adc2 > (d->float_conf.fault_adc2 * ADC_HAND_PRESS_SCALE)) {
 				d->state = FAULT_SWITCH_HALF;
 				d->flywheel_abort = true;
 				return true;
@@ -868,7 +906,7 @@ static void calculate_setpoint_target(data *d) {
 					d->setpointAdjustmentType = TILTBACK_NONE;
 					d->reverse_total_erpm = 0;
 					d->setpoint_target = 0;
-					d->integral = 0;
+					d->pid_integral = 0;
 				}
 			}
 		}
@@ -908,6 +946,7 @@ static void calculate_setpoint_target(data *d) {
 		d->setpointAdjustmentType = TILTBACK_DUTY;
 		d->state = RUNNING_TILTBACK;
 	} else if (d->abs_duty_cycle > 0.05 && input_voltage > d->float_conf.tiltback_hv) {
+		d->beep_reason = BEEP_HV;
 		beep_alert(d, 3, false);	// Triple-beep
 		if (((d->current_time - d->tb_highvoltage_timer) > .5) ||
 		   (input_voltage > d->float_conf.tiltback_hv + 1)) {
@@ -929,6 +968,7 @@ static void calculate_setpoint_target(data *d) {
 	} else if(VESC_IF->mc_temp_fet_filtered() > d->mc_max_temp_fet){
 		// Use the angle from Low-Voltage tiltback, but slower speed from High-Voltage tiltback
 		beep_alert(d, 3, true);	// Triple-beep (long beeps)
+		d->beep_reason = BEEP_TEMPFET;
 		if(VESC_IF->mc_temp_fet_filtered() > (d->mc_max_temp_fet + 1)) {
 			if(d->erpm > 0){
 				d->setpoint_target = d->float_conf.tiltback_lv_angle;
@@ -946,6 +986,7 @@ static void calculate_setpoint_target(data *d) {
 	} else if(VESC_IF->mc_temp_motor_filtered() > d->mc_max_temp_mot){
 		// Use the angle from Low-Voltage tiltback, but slower speed from High-Voltage tiltback
 		beep_alert(d, 3, true);	// Triple-beep (long beeps)
+		d->beep_reason = BEEP_TEMPMOT;
 		if(VESC_IF->mc_temp_motor_filtered() > (d->mc_max_temp_mot + 1)) {
 			if(d->erpm > 0){
 				d->setpoint_target = d->float_conf.tiltback_lv_angle;
@@ -962,6 +1003,7 @@ static void calculate_setpoint_target(data *d) {
 		}
 	} else if (d->abs_duty_cycle > 0.05 && input_voltage < d->float_conf.tiltback_lv) {
 		beep_alert(d, 3, false);	// Triple-beep
+		d->beep_reason = BEEP_LV;
 		float abs_motor_current = fabsf(d->motor_current);
 		float vdelta = d->float_conf.tiltback_lv - input_voltage;
 		float ratio = vdelta * 20 / abs_motor_current;
@@ -1015,6 +1057,7 @@ static void calculate_setpoint_target(data *d) {
 		if (d->setpointAdjustmentType == TILTBACK_DUTY) {
 			if (d->float_conf.is_dutybuzz_enabled || (d->float_conf.tiltback_duty_angle == 0)) {
 				beep_on(d, true);
+				d->beep_reason = BEEP_DUTY;
 				d->duty_beeping = true;
 			}
 		}
@@ -1798,6 +1841,7 @@ static void float_thd(void *arg) {
 					if (bat_volts < threshold) {
 						int beeps = (int)fminf(6, threshold - bat_volts);
 						beep_alert(d, beeps + 1, true);
+						d->beep_reason = BEEP_LOWBATT;
 					}
 					else {
 						// // Let the rider know that the board is ready (one long beep)
@@ -1862,15 +1906,15 @@ static void float_thd(void *arg) {
 			bool tail_down = SIGN(d->proportional) != SIGN(d->erpm);
 
 			// Resume real PID maths
-			d->integral = d->integral + d->proportional;
-
-			if (d->setpointAdjustmentType == REVERSESTOP) {
-				d->integral = d->integral * 0.9;
-			}
+			d->pid_integral = d->pid_integral + d->proportional * d->float_conf.ki;
 
 			// Apply I term Filter
-			if (d->float_conf.ki_limit > 0 && fabsf(d->integral * d->float_conf.ki) > d->float_conf.ki_limit) {
-				d->integral = d->float_conf.ki_limit / d->float_conf.ki * SIGN(d->integral);
+			if (d->float_conf.ki_limit > 0 && fabsf(d->pid_integral) > d->float_conf.ki_limit) {
+				d->pid_integral = d->float_conf.ki_limit * SIGN(d->pid_integral);
+			}
+			// Quickly ramp down integral component during reverse stop
+			if (d->setpointAdjustmentType == REVERSESTOP) {
+				d->pid_integral = d->pid_integral * 0.9;
 			}
 
 			// Apply P Brake Scaling
@@ -1882,7 +1926,6 @@ static void float_thd(void *arg) {
 			}
 
 			d->pid_prop = scaled_kp * d->proportional;
-			d->pid_integral = d->float_conf.ki * d->integral;
 			new_pid_value = d->pid_prop + d->pid_integral;
 
 			d->last_proportional = d->proportional;
@@ -2038,22 +2081,11 @@ static void float_thd(void *arg) {
 					break;
 				}
 			}
-			if(!d->is_flywheel_mode && d->flywheel_konami_state == 0 && d->true_pitch_angle > 75 && d->true_pitch_angle < 105 && d->adc1 > 1 && d->adc2 < 1){
-				d->flywheel_konami_state = 1;
-				d->flywheel_konami_timer = d->current_time;
-			}else if(!d->is_flywheel_mode && d->flywheel_konami_state == 1 && d->true_pitch_angle > 75 && d->true_pitch_angle < 105 && d->adc1 < 1 && d->adc2 > 1){
-				d->flywheel_konami_state = 2;
-				d->flywheel_konami_timer = d->current_time;
-			}else if(!d->is_flywheel_mode && d->flywheel_konami_state == 2 && d->true_pitch_angle > 75 && d->true_pitch_angle < 105 && d->adc1 > 1 && d->adc2 < 1){
-				d->flywheel_konami_state = 3;
-				d->flywheel_konami_timer = d->current_time;
-			}else if(!d->is_flywheel_mode && d->flywheel_konami_state == 3 && d->true_pitch_angle > 75 && d->true_pitch_angle < 105 && d->adc1 < 1 && d->adc2 > 1){
-				d->flywheel_konami_state = 4;
-				d->flywheel_konami_timer = d->current_time;
-				unsigned char enabled[6] = {0x82, 0, 0, 0, 0, 1};
-				cmd_flywheel_toggle(d, enabled, 6);
-			}else if(d->current_time - d->flywheel_konami_timer > 1.0){
-				d->flywheel_konami_state = 0;
+			else {
+				if (flywheel_konami_check(d)) {
+					unsigned char enabled[6] = {0x82, 0, 0, 0, 0, 1};
+					cmd_flywheel_toggle(d, enabled, 6);
+				}
 			}
 
 			if (d->current_time - d->disengage_timer > 10) {
@@ -2073,6 +2105,7 @@ static void float_thd(void *arg) {
 						d->idle_voltage = input_voltage;
 					}
 					else {
+						d->beep_reason = BEEP_IDLE;
 						beep_alert(d, 2, 1);						// 2 long beeps
 					}
 				}
@@ -2228,9 +2261,9 @@ static float app_float_get_debug(int index) {
 		case(13):
 			return d->filtered_diff_time;
 		case(14):
-			return d->integral;
+			return d->pid_integral / d->float_conf.ki;
 		case(15):
-			return d->integral * d->float_conf.ki;
+			return d->pid_integral;
 		case(16):
 			return 0;
 		case(17):
@@ -2253,6 +2286,9 @@ enum {
 	FLOAT_COMMAND_PRINT_INFO = 9,	// print verbose info
 	FLOAT_COMMAND_GET_ALLDATA = 10,	// send all data, compact
 	FLOAT_COMMAND_EXPERIMENT = 11,  // generic cmd for sending data, used for testing/tuning new features
+	FLOAT_COMMAND_LOCK = 12,
+	FLOAT_COMMAND_HANDTEST = 13,
+	FLOAT_COMMAND_TUNE_TILT = 14,
 	FLOAT_COMMAND_FLYWHEEL = 22,
 } float_commands;
 
@@ -2268,8 +2304,16 @@ static void send_realtime_data(data *d){
 	buffer_append_float32_auto(send_buffer, d->pitch_angle, &ind);
 	buffer_append_float32_auto(send_buffer, d->roll_angle, &ind);
 
-	send_buffer[ind++] = (d->state & 0xF) + (d->setpointAdjustmentType << 4);
-	send_buffer[ind++] = d->switch_state;
+	uint8_t state = (d->state & 0xF);
+	if ((d->is_flywheel_mode) && (d->state > 0) && (d->state < 6)) {
+		state = RUNNING_FLYWHEEL;
+	}
+	send_buffer[ind++] = (state & 0xF) + (d->setpointAdjustmentType << 4);
+	state = d->switch_state;
+	if (d->do_handtest) {
+		state |= 0x8;
+	}
+	send_buffer[ind++] = (state & 0xF) + (d->beep_reason << 4);
 	buffer_append_float32_auto(send_buffer, d->adc1, &ind);
 	buffer_append_float32_auto(send_buffer, d->adc2, &ind);
 
@@ -2321,7 +2365,15 @@ static void cmd_send_all_data(data *d, unsigned char mode){
 			state = RUNNING_FLYWHEEL;
 		}
 		send_buffer[ind++] = state;
-		send_buffer[ind++] = d->switch_state;
+
+		// passed switch-state includes bit3 for handtest, and bits4..7 for beep reason
+		state = d->switch_state;
+		if (d->do_handtest) {
+			state |= 0x8;
+		}
+		send_buffer[ind++] = (state & 0xF) + (d->beep_reason << 4);
+		d->beep_reason = BEEP_NONE;
+
 		send_buffer[ind++] = d->adc1 * 50;
 		send_buffer[ind++] = d->adc2 * 50;
 
@@ -2384,6 +2436,46 @@ static void split(unsigned char byte, int* h1, int* h2)
 static void cmd_print_info(data *d)
 {
 	//VESC_IF->printf("A:%.1f, D:%.2f\n", d->surge_angle, d->float_conf.surge_duty_start);
+}
+
+static void cmd_lock(data *d, unsigned char *cfg)
+{
+	if (d->state >= FAULT_ANGLE_PITCH) {
+		d->float_conf.float_disable = cfg[0] ? true : false;
+		d->state = cfg[0] ? DISABLED : STARTUP;
+		write_cfg_to_eeprom(d);
+	}
+}
+
+static void cmd_handtest(data *d, unsigned char *cfg)
+{
+	if (d->state >= FAULT_ANGLE_PITCH) {
+		d->do_handtest = cfg[0] ? true : false;
+		if (d->do_handtest) {
+			// temporarily reduce max currents to make hand test safer / gentler
+			d->mc_current_max = 7;
+			d->mc_current_min = -7;
+			// Disable I-term and all tune modifiers and tilts
+			d->float_conf.ki = 0;
+			d->float_conf.kp_brake = 1;
+			d->float_conf.kp2_brake = 1;
+			d->float_conf.brkbooster_angle = 100;
+			d->float_conf.booster_angle = 100;
+			d->float_conf.torquetilt_strength = 0;
+			d->float_conf.torquetilt_strength_regen = 0;
+			d->float_conf.atr_strength_up = 0;
+			d->float_conf.atr_strength_down = 0;
+			d->float_conf.turntilt_strength = 0;
+			d->float_conf.tiltback_constant = 0;
+			d->float_conf.tiltback_variable = 0;
+			d->float_conf.fault_delay_pitch = 50;
+			d->float_conf.fault_delay_roll = 50;
+		}
+		else {
+			read_cfg_from_eeprom(d);
+			configure(d);
+		}
+	}
 }
 
 static void cmd_experiment(data *d, unsigned char *cfg)
@@ -2624,9 +2716,43 @@ static void cmd_tune_defaults(data *d){
 }
 
 /**
+ * cmd_runtime_tune_tilt		Extract settings from 20byte message but don't write to EEPROM!
+ */
+static void cmd_runtime_tune_tilt(data *d, unsigned char *cfg, int len)
+{
+	unsigned int flags = cfg[0];
+	bool duty_buzz = flags & 0x1;
+	d->float_conf.is_dutybuzz_enabled = duty_buzz;
+	float retspeed = cfg[1];
+	if (retspeed > 0) {
+		d->float_conf.tiltback_return_speed = retspeed / 10;
+		d->tiltback_return_step_size = d->float_conf.tiltback_return_speed / d->float_conf.hertz;
+	}
+	d->float_conf.tiltback_duty = (float)cfg[2] / 100.0;
+	d->float_conf.tiltback_duty_angle = (float)cfg[3] / 10.0;
+	d->float_conf.tiltback_duty_speed = (float)cfg[4] / 10.0;
+
+	if (len >= 6) {
+		float surge_duty_start = cfg[5];
+		if (surge_duty_start > 0) {
+			d->float_conf.surge_duty_start = surge_duty_start / 100.0;
+			d->float_conf.surge_angle  = (float)cfg[6] / 20.0;
+			d->surge_angle = d->float_conf.surge_angle;
+			d->surge_angle2 = d->float_conf.surge_angle * 2;
+			d->surge_angle3 = d->float_conf.surge_angle * 3;
+			d->surge_enable = d->surge_angle > 0;
+		}
+		beep_alert(d, 1, 1);
+	}
+	else {
+		beep_alert(d, 3, 0);
+	}
+}
+
+/**
  * cmd_runtime_tune_other		Extract settings from 20byte message but don't write to EEPROM!
  */
-static void cmd_runtime_tune_other(data *d, unsigned char *cfg)
+static void cmd_runtime_tune_other(data *d, unsigned char *cfg, int len)
 {
 	unsigned int flags = cfg[0];
 	d->buzzer_enabled = ((flags & 0x2) == 2);
@@ -2665,8 +2791,10 @@ static void cmd_runtime_tune_other(data *d, unsigned char *cfg)
 	if (fabsf(tiltconst <= 20)) {
 		d->float_conf.tiltback_constant = tiltconst / 2;
 		d->float_conf.tiltback_constant_erpm = tilterpm;
-		d->noseangling_step_size = tiltspeed / 10 / d->float_conf.hertz;
-		d->float_conf.noseangling_speed = tiltspeed / 10;
+		if (tiltspeed > 0) {
+			d->noseangling_step_size = tiltspeed / 10 / d->float_conf.hertz;
+			d->float_conf.noseangling_speed = tiltspeed / 10;
+		}
 		d->float_conf.tiltback_variable = tiltvarrate / 100;
 		d->float_conf.tiltback_variable_max = tiltvarmax / 10;
 
@@ -2678,11 +2806,19 @@ static void cmd_runtime_tune_other(data *d, unsigned char *cfg)
 		} else {
 			d->tiltback_variable_max_erpm = 100000;
 		}
+		d->float_conf.tiltback_variable_erpm = cfg[11] * 100;
 	}
 
-	int inputtilt = cfg[11];
-	if (inputtilt == 0) {
-		d->float_conf.inputtilt_remote_type = INPUTTILT_NONE;
+	if (len >= 14) {
+		int inputtilt = cfg[12] & 0x3;
+		if (inputtilt <= INPUTTILT_PPM) {
+			d->float_conf.inputtilt_remote_type = inputtilt;
+			if (inputtilt > 0) {
+				d->float_conf.inputtilt_angle_limit = cfg[12] >> 2;
+				d->float_conf.inputtilt_speed = cfg[13];
+				d->inputtilt_step_size = d->float_conf.inputtilt_speed / d->float_conf.hertz;
+			}
+		}
 	}
 }
 
@@ -2725,6 +2861,15 @@ static void cmd_flywheel_toggle(data *d, unsigned char *cfg, int len)
 	if ((d->state >= RUNNING) && (d->state <= RUNNING_FLYWHEEL))
 		return;
 
+	// cfg[0]: Command (0 = stop, 1 = start)
+	// All of the below are mandatory, but can be 0 to just use defaults
+	// cfg[1]: AngleP: kp*10 (e.g. 90: P=9.0)
+	// cfg[2]: RateP:  kp2*100 (e.g. 50: RateP=0.5)
+	// cfg[3]: Duty TB Angle * 10
+	// cfg[4]: Duty TB Duty %
+	// cfg[5]: Allow Abort via footpad (1 = do allow, 0 = don't allow)
+	// Optional:
+	// cfg[6]: Duty TB Speed in deg/sec
 	int command = cfg[0] & 0x7F;
 	d->is_flywheel_mode = (command == 0) ? false : true;
 
@@ -2749,10 +2894,11 @@ static void cmd_flywheel_toggle(data *d, unsigned char *cfg, int len)
 		d->float_conf.startup_roll_tolerance = 25;
 		d->float_conf.fault_pitch = 6;
 		d->float_conf.fault_roll = 35;	// roll can fluctuate significantly in the upright position
-		d->float_conf.fault_delay_pitch = 0;
-		d->float_conf.fault_delay_roll = 0;
-		d->float_conf.fault_adc1 = 0;
-		d->float_conf.fault_adc2 = 0;
+		if (command & 0x4) {
+			d->float_conf.fault_roll = 90;
+		}
+		d->float_conf.fault_delay_pitch = 50; // 50ms delay should help filter out IMU noise
+		d->float_conf.fault_delay_roll = 50;  // 50ms delay should help filter out IMU noise
 		d->surge_enable = false;
 
 		// Aggressive P with some D (aka Rate-P) for Mahony kp=0.3
@@ -2809,6 +2955,10 @@ static void cmd_flywheel_toggle(data *d, unsigned char *cfg, int len)
 		d->float_conf.tiltback_variable = 0;
 		d->float_conf.brake_current = 0;
 		d->float_conf.fault_darkride_enabled = false;
+		d->float_conf.fault_reversestop_enabled = false;
+		d->float_conf.tiltback_constant = 0;
+		d->tiltback_variable_max_erpm = 0;
+		d->tiltback_variable = 0;
 	} else {
 		flywheel_stop(d);
 	}
@@ -2823,6 +2973,78 @@ void flywheel_stop(data *d)
 	VESC_IF->set_cfg_float(CFG_PARAM_l_max_erpm + 100, 30000);
 	read_cfg_from_eeprom(d);
 	configure(d);
+}
+
+bool flywheel_konami_check(data *d)
+{
+	if ((d->flywheel_konami_state == 0) && flywheel_konami_step(d, 1)) { // LEFT
+		d->flywheel_konami_state = 1;
+		d->flywheel_konami_timer = d->current_time;
+		d->flywheel_konami_pitch = d->true_pitch_angle;
+	} else if ((d->flywheel_konami_state == 1) && flywheel_konami_step(d, 0)) { // _
+		d->flywheel_konami_state = 2;
+		d->flywheel_konami_timer = d->current_time;
+	} else if ((d->flywheel_konami_state == 2) && flywheel_konami_step(d, 2)) { // RIGHT
+		d->flywheel_konami_state = 3;
+		d->flywheel_konami_timer = d->current_time;
+	} else if ((d->flywheel_konami_state == 3) && flywheel_konami_step(d, 0)) { // _
+		d->flywheel_konami_state = 4;
+		d->flywheel_konami_timer = d->current_time;
+	} else if ((d->flywheel_konami_state == 4) && flywheel_konami_step(d, 1)) { // LEFT
+		d->flywheel_konami_state = 5;
+		d->flywheel_konami_timer = d->current_time;
+	} else if ((d->flywheel_konami_state == 5) && flywheel_konami_step(d, 0)) { // _
+		d->flywheel_konami_state = 6;
+		d->flywheel_konami_timer = d->current_time;
+	} else if ((d->flywheel_konami_state == 6) && flywheel_konami_step(d, 2)) { // RIGHT (ENABLE FLYWHEEL)
+		d->flywheel_konami_state = 7;
+		d->flywheel_konami_timer = d->current_time;
+		return true;
+	} else if (// Timeout:
+		   (d->current_time - d->flywheel_konami_timer > 0.5) ||
+		   // Right Press when expecting Left:
+		   ((d->flywheel_konami_state == 4) && flywheel_konami_step(d, 2)) ||
+		   // Left Press when expecting Right:
+		   (((d->flywheel_konami_state == 2) || (d->flywheel_konami_state == 6)) && flywheel_konami_step(d, 1)) ||
+		   // Double Press when expecting None:
+		   (((d->flywheel_konami_state == 1) || (d->flywheel_konami_state == 3) || (d->flywheel_konami_state == 5)) && flywheel_konami_step(d, 3))) {
+
+		d->flywheel_konami_state = 0;
+	}
+	return false;
+}
+
+bool flywheel_konami_step(data *d, int input)
+{
+	float fault_adc1 = d->float_conf.fault_adc1 * ADC_HAND_PRESS_SCALE;
+	float fault_adc2 = d->float_conf.fault_adc2 * ADC_HAND_PRESS_SCALE;
+	if((!d->is_flywheel_mode) && (d->true_pitch_angle > 75) && (d->true_pitch_angle < 105) && // Check that Flywheel is inactive and board is within reasonable pitch range
+	   ((d->flywheel_konami_state == 0) || (fabsf(d->true_pitch_angle - d->flywheel_konami_pitch) < 2.5)))
+	{
+		switch(input) {
+		case 1: // ADC 1 Pressed
+			if ((d->adc1 > fault_adc1) && (d->adc2 < fault_adc2)) {
+				return true;
+			}
+			break;
+		case 2: // ADC 2 Pressed
+			if ((d->adc1 < fault_adc1) && (d->adc2 > fault_adc2)) {
+				return true;
+			}
+			break;
+		case 3: // ADC 1 + 2 Pressed
+			if ((d->adc1 > fault_adc1) && (d->adc2 > fault_adc2)) {
+				return true;
+			}
+			break;
+		default: // No ADC Pressed
+			if ((d->adc1 < fault_adc1) && (d->adc2 < fault_adc2)) {
+				return true;
+			}
+			break;
+		}
+	}
+	return false; // Reached if any conditions along the way are failed
 }
 
 // Handler for incoming app commands
@@ -2866,7 +3088,18 @@ static void on_command_received(unsigned char *buffer, unsigned int len) {
 		}
 		case FLOAT_COMMAND_TUNE_OTHER: {
 			if (len >= 14) {
-				cmd_runtime_tune_other(d, &buffer[2]);
+				cmd_runtime_tune_other(d, &buffer[2], len - 2);
+			}
+			else {
+				if (!VESC_IF->app_is_output_disabled()) {
+					VESC_IF->printf("Float App: Command length incorrect (%d)\n", len);
+				}
+			}
+			return;
+		}
+		case FLOAT_COMMAND_TUNE_TILT: {
+			if (len >= 10) {
+				cmd_runtime_tune_tilt(d, &buffer[2], len - 2);
 			}
 			else {
 				if (!VESC_IF->app_is_output_disabled()) {
@@ -2917,6 +3150,14 @@ static void on_command_received(unsigned char *buffer, unsigned int len) {
 		}
 		case FLOAT_COMMAND_EXPERIMENT: {
 			cmd_experiment(d, &buffer[2]);
+			return;
+		}
+		case FLOAT_COMMAND_LOCK: {
+			cmd_lock(d, &buffer[2]);
+			return;
+		}
+		case FLOAT_COMMAND_HANDTEST: {
+			cmd_handtest(d, &buffer[2]);
 			return;
 		}
 		case FLOAT_COMMAND_BOOSTER: {
@@ -2990,6 +3231,11 @@ static int get_cfg(uint8_t *buffer, bool is_default) {
 
 static bool set_cfg(uint8_t *buffer) {
 	data *d = (data*)ARG;
+
+	// don't let users use the Float Cfg "write" button in flywheel mode
+	if (d->is_flywheel_mode || d->do_handtest)
+		return false;
+
 	bool res = confparser_deserialize_float_config(buffer, &(d->float_conf));
 
 	// Store to EEPROM
@@ -3026,7 +3272,7 @@ static void stop(void *arg) {
 INIT_FUN(lib_info *info) {
 	INIT_START
 	if (!VESC_IF->app_is_output_disabled()) {
-		VESC_IF->printf("Init Float v%.1f - Surge3\n", (double)APPCONF_FLOAT_VERSION);
+		VESC_IF->printf("Init Float v%.1fd\n", (double)APPCONF_FLOAT_VERSION);
 	}
 
 	data *d = VESC_IF->malloc(sizeof(data));
