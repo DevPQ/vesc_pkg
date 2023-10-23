@@ -57,7 +57,6 @@ Item {
     property var fault_code: 0
     property var lit_state: 0
     property var lit_dim: 1.0
-    property var isReady: 0
 
     Settings {
         id: settingStorage
@@ -148,9 +147,7 @@ Item {
         interval: 1000
         
         onTriggered: {
-            if(isReady == 1){
-                mCommands.lispSendReplCmd("(git-lit-data)")
-            }
+            mCommands.lispSendReplCmd("(setq request-data 1)")
         }
             
     }
@@ -181,16 +178,9 @@ Item {
             var msgtype = dv.getUint8(ind); ind += 1;
 
             if (magicnr == 88) {
-                //var led_state = dv.getInt8(ind); ind += 1;
-                //var led_dim = dv.getFloat32(ind); ind += 4;
-                //lit_state = led_state.toFixed(0)
-                //lit_dim = led_dim.toFixed(2)
-                //isReady = 1
                 ind -= 1;
                 lit_state = dv.getInt8(ind); ind += 1;
                 lit_dim = dv.getInt8(ind); ind += 1;
-                //console.log(lit_dim.toFixed(1))
-                //lit_dim.parseFloat()
                 lit_dim = lit_dim * 0.1; 
            
                 if (lit_state == 1){
@@ -1078,7 +1068,6 @@ Item {
 
             ColumnLayout { //GitLit Page
                 id: gitlitColumn
-                //anchors.fill: parent
                 Layout.fillWidth: true
                 spacing: 0
                 
@@ -1098,7 +1087,6 @@ Item {
                 Slider {
                     id: dimSlider
                     Layout.fillWidth: true
-                    //decimals: 1
                     from: 0.0
                     to: 1.0
                     value: lit_dim

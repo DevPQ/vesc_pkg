@@ -58,6 +58,7 @@
 (def abs-erpm (round (ext-float-dbg 8)))
 ;(def erpm (round (get-rpm)))
 ;(def abs-erpm (round (abs (get-rpm))))
+(def request-data 0)
 
 (def fade '(
     (0 0.0)
@@ -383,6 +384,13 @@
                             (setq switch-last (systime))
                     })                          
                 ) 
+                nil
+            )
+            (if (= request-data 1)
+                {
+                    (setq request-data 0)
+                    (git-lit-data)
+                }
                 nil
             )
             (sleep (/ 1.0 rate))
