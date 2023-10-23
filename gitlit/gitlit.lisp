@@ -58,6 +58,7 @@
 (def abs-erpm (round (ext-float-dbg 8)))
 ;(def erpm (round (get-rpm)))
 ;(def abs-erpm (round (abs (get-rpm))))
+(def data-request 0)
 
 (def fade '(
     (0 0.0)
@@ -264,14 +265,13 @@
 
 (defun git-lit-data () {
     (var buffer (array-create 3))
-    (var uid 88) ;uid (dec) 88 == (hex)0x58
+    (var uid 88) ;uid: (dec)88 == (hex)0x58
     
     (bufclear buffer)
     (bufset-i8 buffer 0 uid)
     (bufset-i8 buffer 1 lit-state)
     (bufset-i8 buffer 2 (to-i (* dim-on 10)))
-       
-    ;(send-data `(,uid ,lit-state ,dim-on)) send data to QML
+
     (send-data buffer)
     (free buffer)
 })
@@ -308,7 +308,7 @@
                                 {
                                     (if (= dir 0)
                                         {
-                                            ;(if (=binders 1) (progn 'blink brakes fwd!))
+                                            ;(if (=binders 1) (progn 'blink brakes fwd!)) ;*WIP
                                             ;(print "set-fwd Dir=0")
                                             (fade-forward)
                                             
@@ -316,13 +316,13 @@
                                     } nil)
                                     (if (< dir 0)
                                         {
-                                            ;(if (= binders -1) (progn 'blink brakes reverse!))
+                                            ;(if (= binders -1) (progn 'blink brakes reverse!)) ;*WIP
                                             ;(print "set-rev Dir=-1")
                                             (fade-reverse)
                                     } nil)
                                     (if (> dir 0)
                                         {
-                                            ;(if (= binders 1) (progn 'blink brakes fwd!))
+                                            ;(if (= binders 1) (progn 'blink brakes fwd!)) ;*WIP
                                             ;(print "set-fwd Dir=1")
                                             (fade-forward)
                                     } nil)
@@ -332,7 +332,6 @@
                 )
             }
             {
-                ;(print "i2c-restore")
                 (i2c-restore)
                 (sleep 0.1)
                 (wakeup)
@@ -383,6 +382,13 @@
                             (setq switch-last (systime))
                     })                          
                 ) 
+                nil
+            )
+            (if (= data-request 1)
+                {
+                    (setq data-request 0)
+                    (git-lit-data)
+                }
                 nil
             )
             (sleep (/ 1.0 rate))

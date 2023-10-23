@@ -454,6 +454,7 @@ Item {
         parent: ApplicationWindow.overlay
         onApplied: {
             applyDownloadedTune(tune)
+            settingStorage.setValue("selected_tune", tune._name)
             VescIf.emitStatusMessage(tune._name + " applied!", true)
             close()
         }
@@ -708,7 +709,7 @@ Item {
 					}
 					Text {
 						id: versionText
-						text: "{1.3} GitLit"//"{{VERSION}}"
+						text: "{1.2 GitLit}"//"{{VERSION}}"
 						color: Utility.getAppHexColor("lightText")
 						font.pointSize: 10
 						font.weight: Font.Black
@@ -1138,7 +1139,7 @@ Item {
                     
                     onClicked: {
                         mCommands.lispSendReplCmd("(store-state)")
-                        VescIf.emitStatusMessage("Settings saved!", true)
+                        VescIf.emitStatusMessage("GitLit saved!", true)
                     }
                 }
                 
@@ -1287,6 +1288,7 @@ Item {
                 }
             }
             mCommands.customConfigSet(0, mCustomConf)
+            settingStorage.setValue("selected_tune", saveName)
         }
     }
 
@@ -1349,6 +1351,7 @@ Item {
                 }
             }
             mCommands.setAppConf()
+            settingStorage.setValue("selected_imu", saveName)
         }
     }
 
@@ -1405,6 +1408,24 @@ Item {
             quicksaveNames = defaultQuicksaveNames
         }else{
             quicksaveNames = JSON.parse(json)
+        }
+    }
+    
+    function restoreSelectedTune(){
+        var json = settingStorage.value("selected_tune", "")
+        if(!json){
+            selectedTune = ""
+        }else{
+            selectedTune = JSON.parse(json)
+        }
+    }
+    
+    function storeSelectedTune(tuneName){
+        settingStorage.setValue("selected_tune", tuneName)
+        if(!json){
+            selectedTune = ""
+        }else{
+            selectedTune = JSON.parse(json)
         }
     }
 
