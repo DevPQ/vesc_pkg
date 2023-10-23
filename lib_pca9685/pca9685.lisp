@@ -17,6 +17,8 @@
 ;(define FREQUENCY-OSCILLATOR 25000000) ; Int. osc. frequency in datasheet
 ;(define osc-freq FREQUENCY-OSCILLATOR)
 (define lv-freq 1000)
+(define buf (array-create 5))
+(define data-buf (array-create 4))
 
 @const-start
 
@@ -56,7 +58,7 @@
 
 (defun write-data (ch data)
     {
-        (var buf (array-create 5))  
+        ;(var buf (array-create 5))  
         (if (or (= (buflen data) 0) (> (buflen data) 4)) 
             nil 
             {
@@ -67,7 +69,7 @@
                 (i2c-tx-rx #DEV-ADDR buf)
             }
         )
-        (free buf)
+        ;(free buf)
 })
 
 (defun set-i2c-address (addr)
@@ -86,7 +88,7 @@
 ;#############################################################
 (defun set-sleep () 
     {
-            (var buf (array-create 1))
+            ;(var buf (array-create 1))
         
             ; Read the current state of the mode 1 register.
             (bufclear buf)
@@ -97,32 +99,30 @@
             ;(print (str-from-n (bufget-u8 rsbuf 0) "M1 = 0x%02x"))
             (i2c-tx-rx #DEV-ADDR (list REG-MODE1 (bufget-u8 buf 0)))
             
-            (free buf)
+            ;(free buf)
             ;(print "asleep")
             (yield 1000)
 })
 
 (defun set-auto-inc (enable) 
     {
-            (var buf (array-create 1))
+            ;(var buf (array-create 1))
         
             (bufclear buf)
             (i2c-tx-rx #DEV-ADDR (list REG-MODE1) buf)
             (if (= enable 1) (bufset-bit buf 5 1) (bufset-bit buf 5 0))
             (write-u8 REG-MODE1 (bufget-u8 buf 0))
-            (free buf)
+            ;(free buf)
 })
-
-;@const-end
 
 (defun set-ext-clk (enable) 
     {
-            (var buf (array-create 1))        
+            ;(var buf (array-create 1))        
             (bufclear buf)
             (i2c-tx-rx #DEV-ADDR (list REG-MODE1) buf)
             (if (= enable 1) (bufset-bit buf 6 1) (bufset-bit buf 6 0))
             (write-u8 REG-MODE1 (bufget-u8 buf 0))
-            (free buf)
+            ;(free buf)
         
 })
 
@@ -140,7 +140,7 @@
 ;        00:    0 hi-z
 (defun set-outne (bit0 bit1) 
      {
-            (var buf (array-create 1))
+            ;(var buf (array-create 1))
             (if (or (not bit0) (not bit1) (> bit0 1) (< bit0 0) (> bit1 1) (< bit1 0))
                 nil
                 {
@@ -151,7 +151,7 @@
                     (write-u8 REG-MODE2 (bufget-u8 buf 0))
                 }
             )
-            (free buf)
+            ;(free buf)
 })
 
 ; param: outdrv= 1:totem pole  0:open drain
@@ -162,55 +162,53 @@
 ; 3= P-type Ext. driver used (outdrv:1 invrt:1)
 (defun set-outdrv (outdrv) 
     {
-            (var buf (array-create 1))
+            ;(var buf (array-create 1))
             (bufclear buf)
             (i2c-tx-rx #DEV-ADDR (list REG-MODE2) buf)
             (bufset-bit buf 2 outdrv)
             (write-u8 REG-MODE2 (bufget-u8 buf 0))
-            (free buf)
+            ;(free buf)
 })
 
 ; param: Outputs change on: 1=ACK 0=STOP
 (defun set-och (ack) 
      {
-            (var buf (array-create 1))
+            ;(var buf (array-create 1))
             (bufclear buf)
             (i2c-tx-rx #DEV-ADDR (list REG-MODE2) buf)
             (if (= ack 1) (bufset-bit buf 3 1) (bufset-bit buf 3 0))
             (write-u8 REG-MODE2 (bufget-u8 buf 0))
-            (free buf)
+            ;(free buf)
 })
 
 ; param: inverted= 1:output polarity is inverted
 (defun set-inverted (inverted) 
      {
-            (var buf (array-create 1))
+            ;(var buf (array-create 1))
             (bufclear buf)
             (i2c-tx-rx #DEV-ADDR (list REG-MODE2) buf)      
             (if (= inverted 1) (bufset-bit buf 4 1) (bufset-bit buf 4 0))
             (write-u8 REG-MODE2 (bufget-u8 buf 0))
-            (free buf)
+            ;(free buf)
 })
 ;###############################################################################
 
-;@const-start
-
 (defun is-sleeping ()
      {
-            (var buf (array-create 1))
+            ;(var buf (array-create 1))
             (var sleeping 0)
             ; Read the current state of the mode 1 register.
             (i2c-tx-rx #DEV-ADDR (list REG-MODE1) buf)
         
             ; Check if the sleeping bit is set.
             (setq sleeping (= (bits-dec-int (bufget-u8 buf 0) 4 1) 1))
-            (free buf)
+            ;(free buf)
             sleeping
 })
 
 (defun wakeup () 
     {
-            (var buf (array-create 1))
+            ;(var buf (array-create 1))
             (var awake 0)
         
             ;(print "wakeup")
@@ -229,11 +227,9 @@
             (setq awake (bits-dec-int (bufget-u8 buf 0) 4 1))
             (setq awake (+ awake (bits-dec-int (bufget-u8 buf 0) 7 1)))
         
-            (free buf)
+            ;(free buf)
             (= awake 0)
 })
-
-;@const-end
 
 (defun set-pwm-freq (freq)
     {
@@ -257,19 +253,17 @@
             res        
 })
 
-;@const-start
-
 (defun set-pwm (channel on-t off-t)
      {
-            (var data (array-create 4))
+            ;(var data (array-create 4))
         
-            (bufclear data)
-            (bufset-u8 data 0 on-t)
-            (bufset-u8 data 1 (shr on-t 8))
-            (bufset-u8 data 2 off-t)
-            (bufset-u8 data 3 (shr off-t 8))
-            (write-data channel data)
-            (free data)
+            (bufclear data-buf)
+            (bufset-u8 data-buf 0 on-t)
+            (bufset-u8 data-buf 1 (shr on-t 8))
+            (bufset-u8 data-buf 2 off-t)
+            (bufset-u8 data-buf 3 (shr off-t 8))
+            (write-data channel data-buf)
+            ;(free data)
 })
 
 ;(defun get-pwm (ch-idx)
@@ -316,7 +310,7 @@
 
 (defun write-duty-cycle(data)
     {
-        (var ledn-buf (array-create 4))
+        ;(var ledn-buf (array-create 4))
         (loopforeach ch data
             {
                     (var offset (first ch))
@@ -328,7 +322,8 @@
                     ;(print "write duty")
                     ;(print offset)
                     ;(print duty)
-                    (bufclear ledn-buf)
+                    ;(bufclear ledn-buf)
+                    (bufclear data-buf)
                     
                     (if (> duty 1.0) (setq duty 1.0)
                         (if (< duty 0.0) (setq duty 0.0) nil))
@@ -349,13 +344,13 @@
                                 (setq on-tick (bitwise-and (if (= offset 0) 0 (- (* offset 256) 1)) 0xFFF))                                                            
                                 (setq off-tick (bitwise-and (+ on-period on-tick) 0xFFF))
                             }))
-                    (bufset-u8 ledn-buf 0 on-tick)
-                    (bufset-u8 ledn-buf 1 (shr on-tick 8))
-                    (bufset-u8 ledn-buf 2 off-tick)
-                    (bufset-u8 ledn-buf 3 (shr off-tick 8))
-                    (write-data chan ledn-buf)
+                    (bufset-u8 data-buf 0 on-tick)
+                    (bufset-u8 data-buf 1 (shr on-tick 8))
+                    (bufset-u8 data-buf 2 off-tick)
+                    (bufset-u8 data-buf 3 (shr off-tick 8))
+                    (write-data chan data-buf)
         })
-    (free ledn-buf)
+    ;(free ledn-buf)
 })
 
 (defun all-off () 
@@ -371,8 +366,6 @@
         ;(print "All ON")
     }
 )
-
-;@const-end
 
 (defun pca9685-init (pins i2caddr) 
     {
