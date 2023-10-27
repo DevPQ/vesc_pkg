@@ -4,10 +4,12 @@
 (import "pkg::floatlib@://vesc_packages/float/float.vescpkg" 'floatlib)
 (load-native-lib floatlib)
 
-;(import "pkg::pca9685@://vesc_packages/lib_pca9685/pca9685.vescpkg" 'pca9685)
 (import "pkg@../lib_pca9685/pca9685.vescpkg" 'pca9685)
-;(import "../lib_pca9685/pca9685.lisp" 'pca9685)
 (read-eval-program pca9685)
+
+;(import "pkg::pca9685@://vesc_packages/lib_pca9685/pca9685.vescpkg" 'pca9685) ;from official vesc store
+;(import "pkg@../lib_pca9685/pca9685.vescpkg" 'pca9685) ; From local dir as a .vescpackage
+;(import "../lib_pca9685/pca9685.lisp" 'pca9685) ; From local dir as a .lisp file
 
 ; Switch Balance App to UART App
 (if (= (conf-get 'app-to-use) 9) (conf-set 'app-to-use 3))
@@ -36,47 +38,39 @@
 ;*** USER DEFS SECTION ***
 
 ; Control rates
-(def rate 5) ;HZ
-(def sw-delay 0.2)
+(def gitlit-rate 5) ;HZ
+(def gitlit-sw-delay 0.2)
 
 ; Dim level
-(def dim-on 1.0)
+(def gitlit-dim 1.0)
 
 ; PCA9685 I2C Address:
 ;(def #i2c-addr 0x40)
 
 ;***END USER DEFS
 
-(def lit-state 1) ; on/off
-(def last-dir 0)  ; 1==fwd -1==rev
-(def curr-dir 0)  ; 1==fwd -1==rev
-(def binders 0)
-(def pitch 0)
-(def switch-last 0)
-(def torque-sign 1)
-(def erpm (round (ext-float-dbg 7)))
-(def abs-erpm (round (ext-float-dbg 8)))
-;(def erpm (round (get-rpm)))
-;(def abs-erpm (round (abs (get-rpm))))
-(def request-data 0)
+(def gitlit-state 1) ; on/off
+(def gitlit-last-dir 0)  ; 1==fwd -1==rev
+(def gitlit-curr-dir 0)  ; 1==fwd -1==rev
+(def gitlit-binders 0)
+(def gitlit-pitch 0)
+(def gitlit-switch-last 0)
+(def gitlit-torque-sign 1)
+(def gitlit-erpm (round (ext-float-dbg 7)))
+(def gitlit-abs-erpm (round (ext-float-dbg 8)))
+;(def gitlit-erpm (round (get-rpm)))
+;(def gitlit-abs-erpm (round (abs (get-rpm))))
 
-(def fade '(
+(def gitlit-fade '(
     (0 0.0)
     (4 0.0)
     (8 0.0)
     (12 0.0)
 ))
 
-;(def temp-fade '(
-;    (0 0.0)
-;    (4 0.0)
-;    (8 0.0)
-;    (12 0.0)
-;))
-
 (defun sign (x) (if (> x 0) 1 (- 1)))
 
-(defun batt-level () {
+(defun gitlit-batt-soc () {
     (var batt-per (to-float (get-batt)))
     (var lng-delay 1.0)
     (var sht-delay 0.25)
@@ -84,13 +78,13 @@
     (cond 
         ((>= batt-per 0.90)
             {
-                (red-on);red start
+                (gitlit-red-on);red start
                 (sleep lng-delay)
                 (all-off)
                 (sleep lng-delay)
                 (looprange b 0 4 
                     {
-                        (white-on) 
+                        (gitlit-white-on) 
                         (sleep sht-delay)
                         (all-off) 
                         (sleep sht-delay)  
@@ -99,13 +93,13 @@
         })
         ((and (>= batt-per 0.75) (< batt-per 0.90))
             {
-                (red-on);red start
+                (gitlit-red-on);red start
                 (sleep lng-delay)
                 (all-off)
                 (sleep lng-delay)
                 (looprange b 0 3 
                     {
-                        (white-on) 
+                        (gitlit-white-on) 
                         (sleep sht-delay)
                         (all-off)
                         (sleep sht-delay)   
@@ -114,13 +108,13 @@
         })
         ((and (>= batt-per 0.50) (< batt-per 0.75))
             {
-                (red-on);red start
+                (gitlit-red-on);red start
                 (sleep lng-delay)
                 (all-off)
                 (sleep lng-delay)
                 (looprange b 0 2 
                     {
-                        (white-on) 
+                        (gitlit-white-on) 
                         (sleep sht-delay)
                         (all-off)
                         (sleep sht-delay)   
@@ -129,13 +123,13 @@
         })
         ((and (>= batt-per 0.25) (< batt-per 0.5))
             {
-                (red-on);red start
+                (gitlit-red-on);red start
                 (sleep lng-delay)
                 (all-off)
                 (sleep lng-delay)
                 (looprange b 0 1 
                     {
-                        (white-on) 
+                        (gitlit-white-on) 
                         (sleep sht-delay)
                         (all-off)  
                         (sleep sht-delay) 
@@ -144,13 +138,13 @@
         })
         ((< batt-per 0.25)
             {
-                (red-on);red start
+                (gitlit-red-on);red start
                 (sleep lng-delay)
                 (all-off)
                 (sleep lng-delay)
                 (looprange b 0 4 
                     {
-                        (red-on) 
+                        (gitlit-red-on) 
                         (sleep sht-delay)
                         (all-off) 
                         (sleep sht-delay)  
@@ -161,35 +155,35 @@
         
 })
 
-(defun red-on (){
-        (setix (ix fade 0) 1  1.0);red
-        (setix (ix fade 1) 1  0.0);white
-        (setix (ix fade 2) 1  1.0);red
-        (setix (ix fade 3) 1  0.0);white
-        (write-duty-cycle fade)
+(defun gitlit-red-on (){
+        (setix (ix gitlit-fade 0) 1  1.0);red
+        (setix (ix gitlit-fade 1) 1  0.0);white
+        (setix (ix gitlit-fade 2) 1  1.0);red
+        (setix (ix gitlit-fade 3) 1  0.0);white
+        (write-duty-cycle gitlit-fade)
 })
 
-(defun white-on (){
-        (setix (ix fade 0) 1  0.0);red
-        (setix (ix fade 1) 1  1.0);white
-        (setix (ix fade 2) 1  0.0);red
-        (setix (ix fade 3) 1  1.0);white
-        (write-duty-cycle fade)
+(defun gitlit-white-on (){
+        (setix (ix gitlit-fade 0) 1  0.0);red
+        (setix (ix gitlit-fade 1) 1  1.0);white
+        (setix (ix gitlit-fade 2) 1  0.0);red
+        (setix (ix gitlit-fade 3) 1  1.0);white
+        (write-duty-cycle gitlit-fade)
 })
 
-(defun fade-forward () {
+(defun gitlit-fade-forward () {
     (var steps 16)
     (var inc (/ 1.0 steps))
             
     (looprange s 0 steps
         {               
-            (if (< (* inc s) dim-on)
+            (if (< (* inc s) gitlit-dim)
                 {
-                    (setix (ix fade 0) 1  (* inc s))
-                    (setix (ix fade 1) 1  0.0)
-                    (setix (ix fade 2) 1  0.0)
-                    (setix (ix fade 3) 1  (* inc s))
-                    (write-duty-cycle fade)
+                    (setix (ix gitlit-fade 0) 1  (* inc s))
+                    (setix (ix gitlit-fade 1) 1  0.0)
+                    (setix (ix gitlit-fade 2) 1  0.0)
+                    (setix (ix gitlit-fade 3) 1  (* inc s))
+                    (write-duty-cycle gitlit-fade)
                     (sleep 0.02)
                 }
                 (break t)
@@ -198,19 +192,19 @@
     )
 })
 
-(defun fade-reverse () {
+(defun gitlit-fade-reverse () {
     (var steps 16)
     (var inc (/ 1.0 steps))
             
     (looprange s 0 steps
         {
-            (if (< (* inc s) dim-on)                
+            (if (< (* inc s) gitlit-dim)                
                 { 
-                    (setix (ix fade 0) 1 0.0)
-                    (setix (ix fade 1) 1 (* inc s))
-                    (setix (ix fade 2) 1 (* inc s))
-                    (setix (ix fade 3) 1 0.0)
-                    (write-duty-cycle fade)
+                    (setix (ix gitlit-fade 0) 1 0.0)
+                    (setix (ix gitlit-fade 1) 1 (* inc s))
+                    (setix (ix gitlit-fade 2) 1 (* inc s))
+                    (setix (ix gitlit-fade 3) 1 0.0)
+                    (write-duty-cycle gitlit-fade)
                     (sleep 0.02)
                 }
                 (break t)
@@ -229,7 +223,7 @@
     (var inverted 0)
     (var och 0)
     (var ai 1)
-    (var state (eeprom-read-i 126))
+    (var state (eeprom-read-i 127))
             
     (if (= res 1)
         {
@@ -247,15 +241,15 @@
             (if (not-eq state nil)
                 {
                     (if (= (bitwise-and state 0x1) 1)
-                        (setq lit-state 1)
-                        (setq lit-state 0)
+                        (setq gitlit-state 1)
+                        (setq gitlit-state 0)
                     )
-                    (setq dim-on (* 0.1 (to-float (bits-dec-int state 8 4))))
+                    (setq gitlit-dim (* 0.1 (to-float (bits-dec-int state 8 4))))
                 }
                 {
-                    (eeprom-store-i 126 0x00000A01)
-                    (setq lit-state 1)
-                    (setq dim-on 1.0)
+                    (eeprom-store-i 127 0x00000A01)
+                    (setq gitlit-state 1)
+                    (setq gitlit-dim 1.0)
                 }
             )
         }
@@ -269,15 +263,15 @@
     
     (bufclear buffer)
     (bufset-i8 buffer 0 uid)
-    (bufset-i8 buffer 1 lit-state)
-    (bufset-i8 buffer 2 (to-i (* dim-on 10)))
+    (bufset-i8 buffer 1 gitlit-state)
+    (bufset-i8 buffer 2 (to-i (* gitlit-dim 10)))
        
-    ;(send-data `(,uid ,lit-state ,dim-on)) send data to QML
+    ;(send-data `(,uid ,gitlit-state ,gitlit-dim)) send data to QML
     (send-data buffer)
     (free buffer)
 })
 
-(defun update-output () {
+(defun gitlit-update-output () {
     (var cnt 0)
     (var loc-fade '(
         (0 0.0)
@@ -286,10 +280,10 @@
         (12 0.0)
     ))
     
-    (loopforeach c fade
+    (loopforeach c gitlit-fade
         {
             (if (> (ix c 1) 0.0) 
-                (setix (ix loc-fade cnt) 1 dim-on)
+                (setix (ix loc-fade cnt) 1 gitlit-dim)
                 nil
             )
             (setq cnt (+ cnt 1))
@@ -298,10 +292,10 @@
     (write-duty-cycle loc-fade)
 })
 
-(defun set-output (force-it) {
+(defun gitlit-set-output (force-it) {
     ;(print (str-merge "is-sleeping " is-sleeping))
-    (if (= lit-state 0) (all-off)
-    (if (or (not-eq curr-dir last-dir) (= force-it 1))
+    (if (= gitlit-state 0) (all-off)
+    (if (or (not-eq gitlit-curr-dir gitlit-last-dir) (= force-it 1))
         (if (not (is-sleeping))
             {
                 (let (
@@ -309,27 +303,27 @@
                                 {
                                     (if (= dir 0)
                                         {
-                                            ;(if (=binders 1) (progn 'blink brakes fwd!))
+                                            ;(if (=gitlit-binders 1) (progn 'blink brakes fwd!))
                                             ;(print "set-fwd Dir=0")
-                                            (fade-forward)
+                                            (gitlit-fade-forward)
                                             
                                            
                                     } nil)
                                     (if (< dir 0)
                                         {
-                                            ;(if (= binders -1) (progn 'blink brakes reverse!))
+                                            ;(if (= gitlit-binders -1) (progn 'blink brakes reverse!))
                                             ;(print "set-rev Dir=-1")
-                                            (fade-reverse)
+                                            (gitlit-fade-reverse)
                                     } nil)
                                     (if (> dir 0)
                                         {
-                                            ;(if (= binders 1) (progn 'blink brakes fwd!))
+                                            ;(if (= gitlit-binders 1) (progn 'blink brakes fwd!))
                                             ;(print "set-fwd Dir=1")
-                                            (fade-forward)
+                                            (gitlit-fade-forward)
                                     } nil)
                         }))
                     )
-                    (d curr-dir)
+                    (d gitlit-curr-dir)
                 )
             }
             {
@@ -343,91 +337,84 @@
     ))
 })
 
-(defun led-thd () {
-    (print "led-thd")
+(defun gitlit-thd () {
+    (print "gitlit-thd")
     (loopwhile t            
         {
-            (setq pitch (round (rad2deg (ix (get-imu-rpy) 1))))
-            (setq erpm (round (ext-float-dbg 7)))
-            ;(setq erpm (round (get-rpm)))
-            (setq abs-erpm (round (ext-float-dbg 8)))
-            ;(setq abs-erpm (round (abs (get-rpm))))
-            (setq torque-sign (sign (ext-float-dbg 3)))
-            ;(setq torque-sign (sign (get-current 1)))
+            (setq gitlit-pitch (round (rad2deg (ix (get-imu-rpy) 1))))
+            (setq gitlit-erpm (round (ext-float-dbg 7)))
+            ;(setq gitlit-erpm (round (get-rpm)))
+            (setq gitlit-abs-erpm (round (ext-float-dbg 8)))
+            ;(setq gitlit-abs-erpm (round (abs (get-rpm))))
+            (setq gitlit-torque-sign (sign (ext-float-dbg 3)))
+            ;(setq gitlit-torque-sign (sign (get-current 1)))
                                 
             ;Braking hard???
-            (if (and (> abs-erpm 2500.0) (not-eq torque-sign (sign erpm)) (> (abs pitch) 10.0))
-            (setq binders 1) (setq binders 0))
+            (if (and (> gitlit-abs-erpm 2500.0) (not-eq gitlit-torque-sign (sign gitlit-erpm)) (> (abs gitlit-pitch) 10.0))
+            (setq gitlit-binders 1) (setq gitlit-binders 0))
                 
             ;Direction
-            (if (> (secs-since switch-last) sw-delay)
+            (if (> (secs-since gitlit-switch-last) gitlit-sw-delay)
                 (cond
-                    ((< abs-erpm 100.0)
+                    ((< gitlit-abs-erpm 100.0)
                         {
-                            (setq last-dir curr-dir)
-                            (setq curr-dir 1)
-                            (set-output 0)
-                            (setq switch-last (systime))
+                            (setq gitlit-last-dir gitlit-curr-dir)
+                            (setq gitlit-curr-dir 1)
+                            (gitlit-set-output 0)
+                            (setq gitlit-switch-last (systime))
                     })
-                    ((> erpm 500.0)
+                    ((> gitlit-erpm 500.0)
                         {
-                            (setq last-dir curr-dir)
-                            (setq curr-dir 1)
-                            (set-output 0)
-                            (setq switch-last (systime))
+                            (setq gitlit-last-dir gitlit-curr-dir)
+                            (setq gitlit-curr-dir 1)
+                            (gitlit-set-output 0)
+                            (setq gitlit-switch-last (systime))
                     })
-                    ((< erpm -500.0)
+                    ((< gitlit-erpm -500.0)
                         {
-                            (setq last-dir curr-dir)
-                            (setq curr-dir -1)
-                            (set-output 0)
-                            (setq switch-last (systime))
+                            (setq gitlit-last-dir gitlit-curr-dir)
+                            (setq gitlit-curr-dir -1)
+                            (gitlit-set-output 0)
+                            (setq gitlit-switch-last (systime))
                     })                          
                 ) 
                 nil
             )
-            (if (= request-data 1)
-                {
-                    (setq request-data 0)
-                    (gitlit-data)
-                }
-                nil
-            )
-            (sleep (/ 1.0 rate))
+            (sleep (/ 1.0 gitlit-rate))
         }
     )
 })
 
-(defun store-state () {
+(defun gitlit-store-state () {
     (var mem (to-i32 0))
     (var differs 0)
 
-    (if (eq (eeprom-read-i 126) nil)
-        (eeprom-store-i 126 0x00000A01)
+    (if (eq (eeprom-read-i 127) nil)
+        (eeprom-store-i 127 0x00000A01)
         nil
     )
-    (setq mem (eeprom-read-i 126))
-    (if (= (bitwise-and mem 0x1) (to-i32 lit-state))
+    (setq mem (eeprom-read-i 127))
+    (if (= (bitwise-and mem 0x1) (to-i32 gitlit-state))
         nil
         {
             (setq differs 1)
-            (setq mem (bits-enc-int mem 0 lit-state 1))
+            (setq mem (bits-enc-int mem 0 gitlit-state 1))
         }
     )
-    (if (= (shr mem 8) (to-i32 (* dim-on 10)))
+    (if (= (shr mem 8) (to-i32 (* gitlit-dim 10)))
         nil
         {
             (setq differs 1)
-            (if (< dim-on 0.1)
+            (if (< gitlit-dim 0.1)
                 (setq mem (bits-enc-int mem 8 0 4))
-                (setq mem (bits-enc-int mem 8 (to-u (* dim-on 10)) 4))
+                (setq mem (bits-enc-int mem 8 (to-u (* gitlit-dim 10)) 4))
             )
         }
     )
        
     (if (= differs 1)
         {
-            (eeprom-store-i 126 mem)
+            (eeprom-store-i 127 mem)
         }
         nil
     )
@@ -442,7 +429,7 @@
     }
 )
 
-(batt-level)
+(gitlit-batt-soc)
 (gitlit-data)
-(spawn 100 led-thd)
+(spawn 100 gitlit-thd)
 
