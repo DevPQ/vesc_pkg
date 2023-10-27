@@ -10,5 +10,4 @@ confxml.h
 *.so
 *.rcc
 
-.vs
 .vscode
