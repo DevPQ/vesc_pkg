@@ -698,7 +698,7 @@ Item {
 					}
 					Text {
 						id: versionText
-						text: "{1.3d} GitLit" //"{{VERSION}}"
+						text: "{{VERSION}}" //"{{VERSION}}"
 						color: Utility.getAppHexColor("lightText")
 						font.pointSize: 10
 						font.weight: Font.Black
